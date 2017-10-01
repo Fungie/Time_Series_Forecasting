@@ -10,12 +10,17 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.seasonal import seasonal_decompose
 
 # Reading data in
 target = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/EagleAlphaQuantAnalystTestData.xlsx')
 
 data = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/EagleAlphaQuantAnalystTestData.xlsx',
                      sheetname = 1)
+
+#########################################
+# Preparing data
 
 # Renaming date column
 target.rename(columns = {'Economic Variable X Seasonally Adjusted Month on Month Change' : 'economic_variable'}, inplace = True)
@@ -88,6 +93,56 @@ combined_data = pd.merge(target, data,
                          right_index = True,
                          how = 'left')
 
-del(data, target)
+# calculating month on month difference for each input variable
+month_change = combined_data.copy()
 
+# getting columns to adjust
+adjust_cols = month_change.columns.tolist()
+adjust_cols = adjust_cols[1:]
 
+for col in adjust_cols:
+    month_change[col] = month_change[col].pct_change()
+    
+# Replace inf's with nan
+month_change = month_change.replace([np.inf, -np.inf], np.nan)
+
+# filling nans with zero
+month_change = month_change.fillna(0)
+
+####################################################################
+# Adjusting variables for seasonality
+season_adjust_df = month_change.copy()
+
+season_cols = season_adjust_df.columns.tolist()[2:]
+
+for col in season_cols:
+    decomposition = seasonal_decompose(season_adjust_df[col])
+    residual = decomposition.resid
+    season_adjust_df[col] = residual
+    
+# Testing if residuals are stationary  
+stationarity_cols = season_adjust_df.columns.tolist()[2:]
+stationary_dict = {}
+for col in  stationarity_cols:
+    
+    dftest = adfuller(season_adjust_df[col].dropna(), autolag='AIC')
+    dfoutput = pd.Series(dftest[0:4], index=['Test Statistic','p-value','#Lags Used','Number of Observations Used'])
+    for key,value in dftest[4].items():
+        dfoutput['Critical Value (%s)'%key] = value
+        
+    dfoutput=dfoutput.to_frame().transpose()
+    
+    if (dfoutput['Test Statistic'] <= dfoutput['Critical Value (5%)'])[0]:
+        stationary_dict[col] = True
+        
+    else:
+        stationary_dict[col] = False
+
+test_stationary = all(value == True for value in stationary_dict.values())
+
+if test_stationary == True:
+    print("All variables are stationary")
+else:
+    print("All variables aren't stationary")
+    
+#####################################################################
