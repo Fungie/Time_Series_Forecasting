@@ -1,22 +1,18 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Sep 30 08:59:50 2017
-
-@author: aurenferguson
-"""
 # Loading libs
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+#import seaborn as sns
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.seasonal import seasonal_decompose
+#from sklearn.model_selection import train_test_split
+from sklearn import preprocessing
+from sklearn.linear_model import LassoLarsCV
 
 # Reading data in
-target = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/EagleAlphaQuantAnalystTestData.xlsx')
+target = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/time_series_challenge.xlsx')
 
-data = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/EagleAlphaQuantAnalystTestData.xlsx',
+data = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/time_series_challenge.xlsx',
                      sheetname = 1)
 
 #########################################
@@ -26,7 +22,7 @@ data = pd.read_excel('/Users/aurenferguson/Documents/timeseries_challenge/data/E
 target.rename(columns = {'Economic Variable X Seasonally Adjusted Month on Month Change' : 'economic_variable'}, inplace = True)
 
 # converting date to date object
-# There are mixed date formats so will split data, change to dates and combin
+# There are mixed date formats so will split data, change to dates and combine
 target_contain_dash = target[target.Date.str.contains('/', na = False)]
 target_no_dash = target[~target.Date.str.contains('/', na = False)]
 
@@ -55,23 +51,24 @@ target.index = target.Date
 # Dropping Date
 target.drop('Date', axis = 1, inplace = True)
 
-# Plotting variable
-target.economic_variable.plot()
-
-# plotting Survey
-target.Survey.plot()
+## Plotting variable
+#target.economic_variable.plot()
+#
+## plotting Survey
+#target.Survey.plot()
 
 # plotting variable and Survey together
 plt.plot(target.index, target.economic_variable)
 plt.plot(target.index, target.Survey)
+plt.title("Economic variable and Survey")
+plt.legend()
+plt.show()
 
 # Seperating The week start date and end date into different column
 def split_dates(df, old_col, take_position, sep):
     
     return df[old_col].str.split(' ').str.get(take_position)
     
-# data['start_date'] = split_dates(data, 'Week', 0, ' ')
-
 data['end_date'] = split_dates(data, 'Week', 2, ' ')
 
 
@@ -146,3 +143,49 @@ else:
     print("All variables aren't stationary")
     
 #####################################################################
+# Creating train and test data
+    
+# dropping Term nans
+model_data = season_adjust_df.dropna(subset = stationarity_cols, how = 'all')
+
+model_data_scale = model_data.copy()
+
+# Scaling columns
+model_scale_cols = model_data.columns.tolist()[1:]
+
+for col in model_scale_cols:
+    model_data_scale[col] = preprocessing.scale(model_data_scale[col].astype('float64'))
+
+
+# getting data into x and y 
+x = model_data_scale.iloc[:,1:]
+y = model_data_scale.iloc[:,0]
+
+# Fitting cross validated lars model
+model = LassoLarsCV(cv = 10, precompute = False, normalize=False).fit(x, y)
+
+# Printing coefs showing which terms were put in model
+print(dict(zip(x.columns,model.coef_)))
+
+# Scoring model
+score = model.score(x,y)
+
+# predicting 
+x['prediction'] = model.predict(x)
+
+
+# Plotting results
+plt.plot(x.index, x.prediction)
+plt.plot(y.index, y, c = 'r')
+#plt.plot(x.index, x.Survey)
+plt.title("Economic Variable and Prediction")
+plt.legend()
+plt.show()
+###################
+
+# creating output
+output = x.prediction
+output = output.to_frame()
+output.to_csv("/Users/aurenferguson/Documents/timeseries_challenge/data/output.csv",
+              date_format = "%Y%m%d")
+
